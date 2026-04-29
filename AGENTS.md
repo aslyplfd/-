@@ -7,9 +7,10 @@
 ## 项目定位
 
 - 这是一个带本地 Node 后端的中文财务分析 Web 原型，名称为“财务智析”。
-- 不使用第三方 npm 依赖或构建工具；后端由 Node 内置模块实现。
+- 本地开发后端由 Node 内置模块实现；线上 Netlify 部署使用 `@netlify/blobs` 作为持久化依赖。
 - 入口是 `index.html`，业务、状态、渲染和事件全部集中在 `app.js`，样式全部在 `styles.css`。
 - 后端入口是 `server.js`，负责静态文件服务、账号、会话、用户资料、财务数据和报告状态持久化。
+- Netlify 线上后端入口是 `netlify/functions/api.mjs`，通过 Netlify Functions 暴露 `/api/*`，数据存入 Netlify Blobs。
 - 项目已初始化 Git，默认分支是 `main`，远端为 `https://github.com/aslyplfd/-.git`。
 - 当前本机真实工作目录是 `E:\vpn\Codex\New project`；`C:\Users\Administrator\Documents\New project` 是指向它的目录联接。
 
@@ -24,6 +25,7 @@ npm start
 - 然后访问 `http://localhost:5173`。
 - 注册、登录、资料、财务数据和报告状态必须通过后端 API；直接打开 `index.html` 不再支持浏览器 `localStorage` 本地账号模式。
 - 后端数据默认写入 `data/store.json`，`data/` 已被 `.gitignore` 忽略。
+- Netlify 线上数据写入站点级 Netlify Blobs store `finance-insight-store`，key 为 `store`。
 - 没有自动化测试脚本。修改后至少手动检查：
   - 首次打开能注册后端账号并登录。
   - 左侧导航能切换所有页面。
@@ -53,7 +55,17 @@ npm start
   - 默认数据文件是 `data/store.json`，可用 `DATA_DIR` 环境变量改写。
 
 - `package.json`
-  - 只提供 `npm start`，无第三方 dependencies。
+  - 提供 `npm start` 和 `npm run build:netlify`；线上部署依赖 `@netlify/blobs`。
+
+- `scripts/build-netlify.js`
+  - Netlify 构建脚本，只复制 `index.html`、`app.js`、`styles.css` 到 `dist/`，避免把 `data/`、`server.js`、文档和源码辅助文件作为静态资源发布。
+
+- `netlify.toml`
+  - Netlify 部署配置，构建命令为 `npm run build:netlify`，发布目录为 `dist`，函数目录为 `netlify/functions`。
+
+- `netlify/functions/api.mjs`
+  - Netlify Functions 版后端 API，覆盖 `server.js` 中的账号、会话、资料、财务数据和报告接口。
+  - 使用现代 `export default` + `config.path` 写法，不使用 legacy `exports.handler`。
 
 - `styles.css`
   - 所有 UI 样式、响应式布局、打印样式、主题强调色和界面密度。
@@ -139,6 +151,7 @@ npm start
   - `PUT /api/financials`
   - `PUT /api/report`
 - 运行 `npm start` 时，前端优先使用后端。
+- 部署到 Netlify 时，同一组 `/api/*` 由 `netlify/functions/api.mjs` 提供。
 - 后端不可用或直接打开 HTML 时，前端会停留在登录页并提示先运行 `npm start`；不再提供浏览器 `localStorage` 账号模式。
 - `server.js` 的数据结构：
   - `users`：账号、盐、密码哈希、创建/更新时间。
@@ -147,6 +160,7 @@ npm start
   - `financials`：每个账号导入后的财务数据。
   - `importMeta`：导入状态和导入摘要。
   - `reports`：报告草稿和章节选择。
+- Netlify Blobs 中保存同样结构，线上不会使用 `data/store.json`。
 
 ## 后端账号登录
 
@@ -154,7 +168,7 @@ npm start
 - 首次使用通过 `/api/bootstrap` 判断是否已有账号；没有账号时自动进入注册模式。
 - 注册和登录分别调用 `/api/auth/register` 与 `/api/auth/login`，成功后由 HttpOnly Cookie 保存会话。
 - 密码只在 `server.js` 中使用 PBKDF2 + 随机盐哈希保存，不在前端生成或保存密码哈希。
-- 资料、头像、财务数据、导入状态和报告草稿都按当前后端账号保存到 `data/store.json`。
+- 本地资料、头像、财务数据、导入状态和报告草稿都按当前后端账号保存到 `data/store.json`；Netlify 线上保存到 Blobs。
 - 修改登录逻辑时要保持“无账号先注册，有账号先登录，后端不可用时明确提示启动服务”的体验。
 
 ## 样式与交互约定
@@ -174,6 +188,7 @@ npm start
 - 不要提交 `preview-*.png` 或其他临时截图。
 - 不要引入第三方 Node 依赖或构建流程，除非用户明确要求。
 - 不要提交 `data/`，里面包含后端账号、会话和业务数据。
+- 不要提交 `node_modules/`；Netlify 部署依赖由 `package-lock.json` 还原。
 - 如果新增财务字段：
   - 更新 `demoFinancials`。
   - 更新 `statementFields` 和 `fieldAliases`。

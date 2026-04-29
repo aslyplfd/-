@@ -16,9 +16,25 @@ npm start
 
 注册、登录、资料、财务数据和报告草稿都必须通过后端服务保存；不再支持直接打开 `index.html` 后使用浏览器 `localStorage` 本地账号模式。
 
+## Netlify 部署
+
+项目包含 Netlify 部署配置：
+
+- `netlify.toml`：执行 `npm run build:netlify`，发布 `dist/` 静态文件，并启用 `netlify/functions`。
+- `scripts/build-netlify.js`：只复制 `index.html`、`app.js`、`styles.css` 到 `dist/`，避免上传本地数据和源码文件。
+- `netlify/functions/api.mjs`：提供 `/api/*` 注册、登录、会话、资料、财务数据和报告接口。
+- 线上持久化使用 Netlify Blobs，依赖包为 `@netlify/blobs`。
+
+部署前确保已登录 Netlify CLI，然后运行：
+
+```powershell
+npx netlify deploy --prod
+```
+
 ## 当前能力
 
 - 本地 Node 后端：静态文件服务、账号注册登录、HttpOnly Cookie 会话、资料保存、财务数据保存、报告草稿保存
+- Netlify Functions：线上 `/api/*` 接口和 Netlify Blobs 持久化
 - 三期演示财务数据联动分析
 - KPI 仪表盘与评分体系
 - 资产结构、利润趋势、现金流瀑布图

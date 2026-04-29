@@ -4,6 +4,10 @@
   "private": true,
   "description": "财务智析 Web 原型与本地后端服务",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build:netlify": "node scripts/build-netlify.js"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^10.7.4"
   }
 }
