@@ -12,6 +12,7 @@ const state = {
   authMode: "login",
   currentUser: null,
   currentProfile: null,
+  currentUserCreatedAt: null,
   backendAvailable: false,
   appReady: false,
   importStatus: {
@@ -163,13 +164,6 @@ const normalizedAliases = Object.fromEntries(
   Object.entries(fieldAliases).map(([field, aliases]) => [field, aliases.map(normalizeKey)]),
 );
 
-const AUTH_USERS_KEY = "financeInsightUsers";
-const AUTH_SESSION_KEY = "financeInsightSession";
-const USER_PROFILES_KEY = "financeInsightProfiles";
-const LOCAL_FINANCIALS_KEY = "financeInsightFinancials";
-const LOCAL_IMPORT_META_KEY = "financeInsightImportMeta";
-const LOCAL_REPORT_KEY = "financeInsightReport";
-
 function defaultImportStatus() {
   return {
     balance: { label: "待上传", type: "warn", rows: 0 },
@@ -209,56 +203,20 @@ async function apiRequest(path, options = {}) {
 function applyUserPayload(payload) {
   if (!payload) return;
   state.currentUser = payload.username || state.currentUser;
+  state.currentUserCreatedAt = payload.createdAt || state.currentUserCreatedAt;
   state.currentProfile = payload.profile ? { ...defaultProfile(payload.username), ...payload.profile } : null;
   if (Array.isArray(payload.financials) && payload.financials.length) {
     financials = payload.financials.map((item) => ({ ...item }));
   } else {
-    financials = loadLocalFinancials();
+    financials = demoFinancials.map((item) => ({ ...item }));
   }
-  if (payload.importStatus) state.importStatus = payload.importStatus;
-  if (payload.lastImportSummary) state.lastImportSummary = payload.lastImportSummary;
+  state.importStatus = payload.importStatus || defaultImportStatus();
+  state.lastImportSummary = payload.lastImportSummary || state.lastImportSummary;
   if (payload.reportDraft !== undefined) state.reportDraft = payload.reportDraft;
   if (payload.reportSections) state.reportSections = { ...state.reportSections, ...payload.reportSections };
 }
 
-function loadLocalFinancials() {
-  try {
-    const rows = JSON.parse(localStorage.getItem(LOCAL_FINANCIALS_KEY) || "[]");
-    return Array.isArray(rows) && rows.length ? rows : demoFinancials.map((item) => ({ ...item }));
-  } catch {
-    return demoFinancials.map((item) => ({ ...item }));
-  }
-}
-
-function loadLocalImportMeta() {
-  try {
-    const meta = JSON.parse(localStorage.getItem(LOCAL_IMPORT_META_KEY) || "{}");
-    return {
-      importStatus: meta.importStatus || defaultImportStatus(),
-      lastImportSummary: meta.lastImportSummary || "当前使用系统演示数据，可上传 CSV / JSON / Excel 替换。",
-    };
-  } catch {
-    return {
-      importStatus: defaultImportStatus(),
-      lastImportSummary: "当前使用系统演示数据，可上传 CSV / JSON / Excel 替换。",
-    };
-  }
-}
-
-function loadLocalReportState() {
-  try {
-    return JSON.parse(localStorage.getItem(LOCAL_REPORT_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
 async function persistFinancialState() {
-  localStorage.setItem(LOCAL_FINANCIALS_KEY, JSON.stringify(financials));
-  localStorage.setItem(LOCAL_IMPORT_META_KEY, JSON.stringify({
-    importStatus: state.importStatus,
-    lastImportSummary: state.lastImportSummary,
-  }));
   const result = await apiRequest("/api/financials", {
     method: "PUT",
     body: {
@@ -271,20 +229,21 @@ async function persistFinancialState() {
     return null;
   });
   if (result?.financials?.length) financials = result.financials;
+  if (!result) showToast("无法连接后端服务，数据未保存。");
 }
 
 async function persistReportState() {
-  localStorage.setItem(LOCAL_REPORT_KEY, JSON.stringify({
-    reportDraft: state.reportDraft,
-    reportSections: state.reportSections,
-  }));
-  await apiRequest("/api/report", {
+  const result = await apiRequest("/api/report", {
     method: "PUT",
     body: {
       reportDraft: state.reportDraft,
       reportSections: state.reportSections,
     },
-  }).catch(() => null);
+  }).catch((error) => {
+    showToast(error.message);
+    return null;
+  });
+  if (!result) showToast("无法连接后端服务，报告未保存。");
 }
 
 const pageTitles = {
@@ -1568,18 +1527,6 @@ function renderScenario() {
   `;
 }
 
-function getProfiles() {
-  try {
-    return JSON.parse(localStorage.getItem(USER_PROFILES_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function saveProfiles(profiles) {
-  localStorage.setItem(USER_PROFILES_KEY, JSON.stringify(profiles));
-}
-
 function defaultProfile(username = state.currentUser || "") {
   return {
     displayName: username,
@@ -1601,17 +1548,13 @@ function defaultProfile(username = state.currentUser || "") {
 function getCurrentProfile() {
   const username = state.currentUser || "";
   if (state.currentProfile) return { ...defaultProfile(username), ...state.currentProfile };
-  const profiles = getProfiles();
-  return { ...defaultProfile(username), ...(profiles[username] || {}) };
+  return defaultProfile(username);
 }
 
 async function saveCurrentProfile(patch) {
   const username = state.currentUser;
   if (!username) return;
   state.currentProfile = { ...getCurrentProfile(), ...patch };
-  const profiles = getProfiles();
-  profiles[username] = state.currentProfile;
-  saveProfiles(profiles);
   updateUserChrome();
   const result = await apiRequest("/api/profile", {
     method: "PUT",
@@ -1712,45 +1655,19 @@ async function changeCurrentPassword() {
     showToast("密码已更新。");
     return;
   }
-  const users = getUsers();
-  const current = users[state.currentUser];
-  if (!current) {
-    showToast("当前账号不存在。");
-    return;
-  }
-  const oldHash = await hashPassword(state.currentUser, oldPassword);
-  if (oldHash !== current.passwordHash) {
-    showToast("当前密码不正确。");
-    return;
-  }
-  users[state.currentUser] = { ...current, passwordHash: await hashPassword(state.currentUser, newPassword), updatedAt: new Date().toISOString() };
-  saveUsers(users);
-  document.getElementById("oldPassword").value = "";
-  document.getElementById("newPassword").value = "";
-  document.getElementById("confirmPassword").value = "";
-  showToast("密码已更新。");
-}
-
-function localStorageSize() {
-  let total = 0;
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
-    total += key.length + String(localStorage.getItem(key)).length;
-  }
-  return `${(total / 1024).toFixed(1)} KB`;
+  showToast("无法连接后端服务，密码未更新。");
 }
 
 function renderProfile() {
   const profile = getCurrentProfile();
-  const users = getUsers();
-  const createdAt = users[state.currentUser]?.createdAt ? new Date(users[state.currentUser].createdAt).toLocaleString("zh-CN") : "本地账号";
+  const createdAt = state.currentUserCreatedAt ? new Date(state.currentUserCreatedAt).toLocaleString("zh-CN") : "后端账号";
   return `
     <div class="page">
       <section class="profile-hero panel patterned">
         <div class="profile-identity">
           ${renderAvatar(profile)}
           <div>
-            <p class="eyebrow">Local Profile</p>
+            <p class="eyebrow">Server Profile</p>
             <h2>${profile.displayName || state.currentUser}</h2>
             <p>${profile.role} · ${profile.department}</p>
           </div>
@@ -1767,7 +1684,7 @@ function renderProfile() {
       <section class="grid cols-2">
         <article class="panel">
           <div class="panel-header">
-            <div class="panel-title"><h2>个人资料</h2><p>这些信息只保存在当前浏览器本地</p></div>
+            <div class="panel-title"><h2>个人资料</h2><p>这些信息会保存到后端账号</p></div>
             <button class="primary-button" id="saveProfileBtn">保存资料</button>
           </div>
           <div class="profile-form">
@@ -1813,7 +1730,7 @@ function renderProfile() {
       <section class="grid cols-2">
         <article class="panel">
           <div class="panel-header">
-            <div class="panel-title"><h2>修改密码</h2><p>修改当前本地账号密码</p></div>
+            <div class="panel-title"><h2>修改密码</h2><p>修改当前后端账号密码</p></div>
           </div>
           <div class="profile-form">
             <label><span>当前密码</span><input id="oldPassword" type="password" autocomplete="current-password" /></label>
@@ -1824,12 +1741,12 @@ function renderProfile() {
         </article>
         <article class="panel">
           <div class="panel-header">
-            <div class="panel-title"><h2>本地数据</h2><p>当前浏览器中的账号和偏好信息</p></div>
+            <div class="panel-title"><h2>账号状态</h2><p>当前后端会话和账号信息</p></div>
           </div>
           <div class="profile-stats">
             <div><span>当前账号</span><strong>${state.currentUser}</strong></div>
             <div><span>创建时间</span><strong>${createdAt}</strong></div>
-            <div><span>本地占用</span><strong>${localStorageSize()}</strong></div>
+            <div><span>保存位置</span><strong>后端服务</strong></div>
             <div><span>登录状态</span><strong>已登录</strong></div>
           </div>
           <div class="profile-danger">
@@ -1986,9 +1903,9 @@ function bindStaticEvents() {
 
   document.getElementById("logoutBtn").addEventListener("click", async () => {
     await apiRequest("/api/auth/logout", { method: "POST" }).catch(() => null);
-    localStorage.removeItem(AUTH_SESSION_KEY);
     state.currentUser = null;
     state.currentProfile = null;
+    state.currentUserCreatedAt = null;
     document.body.classList.add("auth-locked");
     document.getElementById("authScreen").hidden = false;
     setAuthMode("login");
@@ -2057,9 +1974,6 @@ function bindDynamicEvents() {
   document.getElementById("saveProfileBtn")?.addEventListener("click", saveProfileFromForm);
   document.getElementById("changePasswordBtn")?.addEventListener("click", changeCurrentPassword);
   document.getElementById("clearProfileBtn")?.addEventListener("click", async () => {
-    const profiles = getProfiles();
-    delete profiles[state.currentUser];
-    saveProfiles(profiles);
     state.currentProfile = defaultProfile(state.currentUser);
     await saveCurrentProfile(state.currentProfile);
     updateUserChrome();
@@ -2354,36 +2268,14 @@ function showToast(message) {
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
 }
 
-function getUsers() {
-  try {
-    return JSON.parse(localStorage.getItem(AUTH_USERS_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function saveUsers(users) {
-  localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
-}
-
-async function hashPassword(username, password) {
-  const text = `${String(username).trim().toLowerCase()}:${password}`;
-  if (window.crypto?.subtle) {
-    const bytes = new TextEncoder().encode(text);
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
-    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  }
-  return btoa(unescape(encodeURIComponent(text)));
-}
-
 function setAuthMode(mode) {
   state.authMode = mode;
   document.querySelectorAll("[data-auth-mode]").forEach((button) => button.classList.toggle("active", button.dataset.authMode === mode));
-  document.getElementById("authTitle").textContent = mode === "setup" ? "创建本地账号" : "登录系统";
+  document.getElementById("authTitle").textContent = mode === "setup" ? "注册账号" : "登录系统";
   document.getElementById("authSubmit").textContent = mode === "setup" ? "创建并登录" : "登录";
   document.getElementById("authHint").textContent = mode === "setup"
-    ? "首次使用请创建账号，密码会以哈希形式保存在当前浏览器本地。"
-    : "请输入本地账号密码，登录后会保持当前浏览器会话。";
+    ? "首次使用请注册后端账号，密码由服务端安全保存。"
+    : "请输入账号密码，登录状态由后端会话维护。";
 }
 
 function setAuthMessage(message, type = "") {
@@ -2392,30 +2284,14 @@ function setAuthMessage(message, type = "") {
   node.dataset.type = type;
 }
 
-function getSessionUser() {
-  const username = localStorage.getItem(AUTH_SESSION_KEY);
-  const users = getUsers();
-  return username && users[username] ? username : null;
-}
-
-function loadLocalStateForUser() {
-  financials = loadLocalFinancials();
-  const importMeta = loadLocalImportMeta();
-  state.importStatus = importMeta.importStatus;
-  state.lastImportSummary = importMeta.lastImportSummary;
-  const report = loadLocalReportState();
-  if (report.reportDraft !== undefined) state.reportDraft = report.reportDraft;
-  if (report.reportSections) state.reportSections = { ...state.reportSections, ...report.reportSections };
-}
-
 function openAppForUser(username, payload = null) {
   state.currentUser = username;
   if (payload) {
     applyUserPayload(payload);
   } else {
-    localStorage.setItem(AUTH_SESSION_KEY, username);
-    state.currentProfile = null;
-    loadLocalStateForUser();
+    state.currentProfile = defaultProfile(username);
+    financials = demoFinancials.map((item) => ({ ...item }));
+    state.importStatus = defaultImportStatus();
   }
   document.body.classList.remove("auth-locked");
   document.getElementById("authScreen").hidden = true;
@@ -2462,27 +2338,9 @@ function bindAuthEvents() {
       if (!serverPayload.financials?.length) persistFinancialState();
       return;
     }
-    if (serverPayload === false) return;
-
-    const users = getUsers();
-    const passwordHash = await hashPassword(username, password);
-    if (state.authMode === "setup") {
-      if (users[username]) {
-        setAuthMessage("该账号已存在，请直接登录。", "error");
-        return;
-      }
-      users[username] = { passwordHash, createdAt: new Date().toISOString() };
-      saveUsers(users);
-      setAuthMessage("账号已创建，正在进入系统。");
-      openAppForUser(username);
-      return;
+    if (serverPayload !== false) {
+      setAuthMessage("无法连接后端服务，请先运行 npm start 后再注册或登录。", "error");
     }
-
-    if (!users[username] || users[username].passwordHash !== passwordHash) {
-      setAuthMessage("账号或密码不正确。", "error");
-      return;
-    }
-    openAppForUser(username);
   });
 }
 
@@ -2515,21 +2373,10 @@ async function init() {
     }
     return;
   }
-  const users = getUsers();
-  const sessionUser = getSessionUser();
-  if (sessionUser) {
-    openAppForUser(sessionUser);
-    return;
-  }
   document.body.classList.add("auth-locked");
   document.getElementById("authScreen").hidden = false;
-  if (!Object.keys(users).length) {
-    setAuthMode("setup");
-    setAuthMessage("首次使用，请先创建一个本地账号。");
-  } else {
-    setAuthMode("login");
-    setAuthMessage("请输入本地账号密码登录。");
-  }
+  setAuthMode("login");
+  setAuthMessage("无法连接后端服务，请先运行 npm start 后再使用注册登录。", "error");
 }
 
 function syncPeriodSelect() {

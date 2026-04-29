@@ -1,5 +1,7 @@
 # AGENTS.md
 
+每次更新完软件后，都需要同步更新根目录下的 `AGENTS.md` 文件。
+
 本文件是给后续 Codex/自动化代理使用的项目记忆。开始改动前先读这里，再读 `README.md` 和相关源码。
 
 ## 项目定位
@@ -20,10 +22,10 @@ npm start
 ```
 
 - 然后访问 `http://localhost:5173`。
-- 直接打开 `index.html` 仍可运行，但会退回浏览器 `localStorage` 模式。
+- 注册、登录、资料、财务数据和报告状态必须通过后端 API；直接打开 `index.html` 不再支持浏览器 `localStorage` 本地账号模式。
 - 后端数据默认写入 `data/store.json`，`data/` 已被 `.gitignore` 忽略。
 - 没有自动化测试脚本。修改后至少手动检查：
-  - 首次打开能创建本地账号并登录。
+  - 首次打开能注册后端账号并登录。
   - 左侧导航能切换所有页面。
   - 期间下拉能切换 2023/2024/2025。
   - 报表导入页面能下载 CSV 模板。
@@ -39,8 +41,8 @@ npm start
   - 如果 CDN 被拦截，Excel 导入会失败，但 CSV/JSON 仍应可用。
 
 - `app.js`
-  - 单文件应用逻辑，包含演示数据、指标计算、页面渲染、事件绑定、导入解析、报告导出和本地登录。
-  - 后端在线时通过 `/api/*` 保存账号、资料、财务数据和报告状态；后端不可用时退回 `localStorage`。
+  - 单文件应用逻辑，包含演示数据、指标计算、页面渲染、事件绑定、导入解析、报告导出和后端账号登录。
+  - 通过 `/api/*` 保存账号、资料、财务数据和报告状态；后端不可用时只提示启动服务，不再退回 `localStorage`。
   - 改动时优先在既有函数附近扩展，不要轻易拆新框架。
 
 - `server.js`
@@ -62,7 +64,7 @@ npm start
 
 - `.gitignore`
   - 已忽略依赖目录、构建产物、环境文件、临时文件和本地预览截图。
-  - 已忽略 `data/`，避免提交本地账号、会话和业务数据。
+  - 已忽略 `data/`，避免提交后端账号、会话和业务数据。
   - `preview-*.png` 是开发过程截图，不应提交。
 
 ## 核心状态与数据
@@ -74,7 +76,7 @@ npm start
   - `abilityTab`：财务指标页当前标签。
   - `scenario`：情景预测滑块参数。
 - `reportDraft`、`reportSections`：报告编辑器与导出章节开关。
-- `authMode`、`currentUser`、`appReady`：本地登录状态。
+- `authMode`、`currentUser`、`currentUserCreatedAt`、`appReady`：后端登录状态。
 - `importStatus`、`lastImportSummary`：三大报表导入状态。
 
 - 演示数据在 `demoFinancials`，运行数据在可变数组 `financials`。
@@ -137,7 +139,7 @@ npm start
   - `PUT /api/financials`
   - `PUT /api/report`
 - 运行 `npm start` 时，前端优先使用后端。
-- 后端不可用或直接打开 HTML 时，前端自动退回浏览器 `localStorage` 模式。
+- 后端不可用或直接打开 HTML 时，前端会停留在登录页并提示先运行 `npm start`；不再提供浏览器 `localStorage` 账号模式。
 - `server.js` 的数据结构：
   - `users`：账号、盐、密码哈希、创建/更新时间。
   - `sessions`：会话 token、用户名、过期时间。
@@ -146,21 +148,14 @@ npm start
   - `importMeta`：导入状态和导入摘要。
   - `reports`：报告草稿和章节选择。
 
-## 本地登录兼容
+## 后端账号登录
 
-- 直接打开 `index.html` 或使用不含 API 的静态服务器时，账号和资料保存在浏览器 `localStorage`。
-- localStorage key：
-  - `financeInsightUsers`
-  - `financeInsightSession`
-  - `financeInsightProfiles`
-  - `financeInsightFinancials`
-  - `financeInsightImportMeta`
-  - `financeInsightReport`
-- 密码由 `hashPassword(username, password)` 处理：
-  - 优先使用 `crypto.subtle.digest("SHA-256")`。
-  - 不可用时退回 Base64 编码，这不是强安全方案，只适合本地原型。
-- 头像会以 Base64 存入 localStorage，上传限制为 2MB。
-- 修改登录逻辑时要保持首次使用自动进入创建账号模式的体验。
+- 前端不再读写浏览器 `localStorage` 作为账号、会话、资料、财务数据或报告草稿的兜底存储。
+- 首次使用通过 `/api/bootstrap` 判断是否已有账号；没有账号时自动进入注册模式。
+- 注册和登录分别调用 `/api/auth/register` 与 `/api/auth/login`，成功后由 HttpOnly Cookie 保存会话。
+- 密码只在 `server.js` 中使用 PBKDF2 + 随机盐哈希保存，不在前端生成或保存密码哈希。
+- 资料、头像、财务数据、导入状态和报告草稿都按当前后端账号保存到 `data/store.json`。
+- 修改登录逻辑时要保持“无账号先注册，有账号先登录，后端不可用时明确提示启动服务”的体验。
 
 ## 样式与交互约定
 
@@ -178,7 +173,7 @@ npm start
 
 - 不要提交 `preview-*.png` 或其他临时截图。
 - 不要引入第三方 Node 依赖或构建流程，除非用户明确要求。
-- 不要提交 `data/`，里面包含本地账号、会话和业务数据。
+- 不要提交 `data/`，里面包含后端账号、会话和业务数据。
 - 如果新增财务字段：
   - 更新 `demoFinancials`。
   - 更新 `statementFields` 和 `fieldAliases`。
@@ -190,7 +185,7 @@ npm start
   - 添加 `renderXxx()`。
   - 在 `renderPage()` 的 `renderers` 映射里注册。
   - 如有交互，在 `bindDynamicEvents()` 中绑定，或复用现有 data 属性模式。
-- 如果新增 localStorage 数据，优先用明确命名的 key，并在个人中心或文档里说明用途。
+- 不要新增浏览器 `localStorage` 账号或业务数据兜底；如需持久化，优先扩展后端 API 和 `data/store.json` 结构。
 - 如果新增后端持久化字段，同步更新 `server.js` 的清洗/校验逻辑、README 和本文件。
 - 模板字符串里插入用户导入内容时要注意 XSS 风险；当前原型多数内容直接拼接 HTML，后续若面向真实用户应增加转义函数。
 

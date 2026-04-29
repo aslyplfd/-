@@ -267,6 +267,7 @@ function userPayload(store, usernameKey) {
   const meta = cleanImportMeta(store.importMeta[usernameKey]);
   return {
     username,
+    createdAt: user?.createdAt || null,
     profile: cleanProfile(store.profiles[usernameKey], username),
     financials: cleanFinancials(store.financials[usernameKey]),
     importStatus: meta.importStatus,
