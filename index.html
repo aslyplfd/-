@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>财务智析 - 财务分析系统</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="auth-locked">
+    <section class="auth-screen" id="authScreen">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="brand-mark">F</div>
+          <div>
+            <strong>财务智析</strong>
+            <span>本地安全登录</span>
+          </div>
+        </div>
+        <div class="auth-copy">
+          <p class="eyebrow">Local Account</p>
+          <h1 id="authTitle">登录系统</h1>
+          <p id="authHint">账号和密码保存在当前浏览器本地，不会上传到服务器。</p>
+        </div>
+        <form class="auth-form" id="authForm">
+          <label>
+            <span>账号</span>
+            <input id="authUsername" name="username" autocomplete="username" placeholder="请输入账号" required />
+          </label>
+          <label>
+            <span>密码</span>
+            <input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
+          </label>
+          <button class="primary-button" id="authSubmit" type="submit">登录</button>
+        </form>
+        <div class="auth-actions">
+          <button class="ghost-button active" data-auth-mode="login">已有账号登录</button>
+          <button class="ghost-button" data-auth-mode="setup">创建本地账号</button>
+        </div>
+        <p class="auth-message" id="authMessage"></p>
+      </div>
+    </section>
+
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">F</div>
+          <div>
+            <strong>财务智析</strong>
+            <span>Financial Insight</span>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="主导航">
+          <span class="nav-section">总览</span>
+          <button class="nav-item active" data-page="dashboard">
+            <span class="nav-icon">⌁</span>
+            <span>财务仪表盘</span>
+          </button>
+          <button class="nav-item" data-page="import">
+            <span class="nav-icon">⇪</span>
+            <span>报表导入</span>
+          </button>
+          <span class="nav-section">报表分析</span>
+          <button class="nav-item" data-page="balance">
+            <span class="nav-icon">▦</span>
+            <span>资产负债表</span>
+          </button>
+          <button class="nav-item" data-page="income">
+            <span class="nav-icon">↗</span>
+            <span>利润表</span>
+          </button>
+          <button class="nav-item" data-page="cashflow">
+            <span class="nav-icon">≈</span>
+            <span>现金流量表</span>
+          </button>
+          <span class="nav-section">能力评估</span>
+          <button class="nav-item" data-page="ability">
+            <span class="nav-icon">◇</span>
+            <span>财务指标</span>
+          </button>
+          <button class="nav-item" data-page="dupont">
+            <span class="nav-icon">⟡</span>
+            <span>杜邦分析</span>
+          </button>
+          <button class="nav-item" data-page="risk">
+            <span class="nav-icon">!</span>
+            <span>风险中心</span>
+          </button>
+          <button class="nav-item" data-page="compare">
+            <span class="nav-icon">≋</span>
+            <span>公司对比</span>
+          </button>
+          <button class="nav-item" data-page="scenario">
+            <span class="nav-icon">◎</span>
+            <span>情景预测</span>
+          </button>
+          <button class="nav-item" data-page="report">
+            <span class="nav-icon">☷</span>
+            <span>分析报告</span>
+          </button>
+          <button class="nav-item" data-page="profile">
+            <span class="nav-icon">●</span>
+            <span>个人中心</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-card pattern-card">
+          <span class="eyebrow">当前风险等级</span>
+          <strong id="sidebarRisk">稳健</strong>
+          <p>基于偿债、盈利、营运与现金流综合评分。</p>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">企业财务分析系统</p>
+            <h1 id="pageTitle">财务仪表盘</h1>
+          </div>
+          <div class="toolbar">
+            <label class="select-control">
+              <span>公司</span>
+              <select id="companySelect">
+                <option>星河制造有限公司</option>
+                <option>云岭科技股份</option>
+                <option>远洲零售集团</option>
+              </select>
+            </label>
+            <label class="select-control">
+              <span>期间</span>
+              <select id="periodSelect"></select>
+            </label>
+            <label class="select-control compact">
+              <span>口径</span>
+              <select id="scopeSelect">
+                <option>年度</option>
+                <option>季度</option>
+                <option>月度</option>
+              </select>
+            </label>
+            <div class="user-pill">
+              <span class="user-avatar-mini" id="currentUserAvatar">U</span>
+              <span id="currentUserLabel">未登录</span>
+              <button id="logoutBtn" title="退出登录">退出</button>
+            </div>
+            <button class="icon-button" id="refreshBtn" title="刷新分析">↻</button>
+            <button class="primary-button" id="exportBtn">导出报告</button>
+          </div>
+        </header>
+
+        <section class="workspace" id="app"></section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
