@@ -11,6 +11,8 @@ const state = {
   reportDraft: "",
   authMode: "login",
   currentUser: null,
+  currentProfile: null,
+  backendAvailable: false,
   appReady: false,
   importStatus: {
     balance: { label: "待上传", type: "warn", rows: 0 },
@@ -164,6 +166,126 @@ const normalizedAliases = Object.fromEntries(
 const AUTH_USERS_KEY = "financeInsightUsers";
 const AUTH_SESSION_KEY = "financeInsightSession";
 const USER_PROFILES_KEY = "financeInsightProfiles";
+const LOCAL_FINANCIALS_KEY = "financeInsightFinancials";
+const LOCAL_IMPORT_META_KEY = "financeInsightImportMeta";
+const LOCAL_REPORT_KEY = "financeInsightReport";
+
+function defaultImportStatus() {
+  return {
+    balance: { label: "待上传", type: "warn", rows: 0 },
+    income: { label: "待上传", type: "warn", rows: 0 },
+    cashflow: { label: "待上传", type: "warn", rows: 0 },
+  };
+}
+
+async function apiRequest(path, options = {}) {
+  if (window.location.protocol === "file:") return null;
+  try {
+    const response = await fetch(path, {
+      method: options.method || "GET",
+      credentials: "same-origin",
+      headers: options.body ? { "Content-Type": "application/json" } : {},
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+    if (response.status === 404) {
+      state.backendAvailable = false;
+      return null;
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.error || "请求失败。");
+      error.status = response.status;
+      throw error;
+    }
+    state.backendAvailable = true;
+    return data;
+  } catch (error) {
+    if (error.status) throw error;
+    state.backendAvailable = false;
+    return null;
+  }
+}
+
+function applyUserPayload(payload) {
+  if (!payload) return;
+  state.currentUser = payload.username || state.currentUser;
+  state.currentProfile = payload.profile ? { ...defaultProfile(payload.username), ...payload.profile } : null;
+  if (Array.isArray(payload.financials) && payload.financials.length) {
+    financials = payload.financials.map((item) => ({ ...item }));
+  } else {
+    financials = loadLocalFinancials();
+  }
+  if (payload.importStatus) state.importStatus = payload.importStatus;
+  if (payload.lastImportSummary) state.lastImportSummary = payload.lastImportSummary;
+  if (payload.reportDraft !== undefined) state.reportDraft = payload.reportDraft;
+  if (payload.reportSections) state.reportSections = { ...state.reportSections, ...payload.reportSections };
+}
+
+function loadLocalFinancials() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(LOCAL_FINANCIALS_KEY) || "[]");
+    return Array.isArray(rows) && rows.length ? rows : demoFinancials.map((item) => ({ ...item }));
+  } catch {
+    return demoFinancials.map((item) => ({ ...item }));
+  }
+}
+
+function loadLocalImportMeta() {
+  try {
+    const meta = JSON.parse(localStorage.getItem(LOCAL_IMPORT_META_KEY) || "{}");
+    return {
+      importStatus: meta.importStatus || defaultImportStatus(),
+      lastImportSummary: meta.lastImportSummary || "当前使用系统演示数据，可上传 CSV / JSON / Excel 替换。",
+    };
+  } catch {
+    return {
+      importStatus: defaultImportStatus(),
+      lastImportSummary: "当前使用系统演示数据，可上传 CSV / JSON / Excel 替换。",
+    };
+  }
+}
+
+function loadLocalReportState() {
+  try {
+    return JSON.parse(localStorage.getItem(LOCAL_REPORT_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+async function persistFinancialState() {
+  localStorage.setItem(LOCAL_FINANCIALS_KEY, JSON.stringify(financials));
+  localStorage.setItem(LOCAL_IMPORT_META_KEY, JSON.stringify({
+    importStatus: state.importStatus,
+    lastImportSummary: state.lastImportSummary,
+  }));
+  const result = await apiRequest("/api/financials", {
+    method: "PUT",
+    body: {
+      financials,
+      importStatus: state.importStatus,
+      lastImportSummary: state.lastImportSummary,
+    },
+  }).catch((error) => {
+    showToast(error.message);
+    return null;
+  });
+  if (result?.financials?.length) financials = result.financials;
+}
+
+async function persistReportState() {
+  localStorage.setItem(LOCAL_REPORT_KEY, JSON.stringify({
+    reportDraft: state.reportDraft,
+    reportSections: state.reportSections,
+  }));
+  await apiRequest("/api/report", {
+    method: "PUT",
+    body: {
+      reportDraft: state.reportDraft,
+      reportSections: state.reportSections,
+    },
+  }).catch(() => null);
+}
 
 const pageTitles = {
   dashboard: "财务仪表盘",
@@ -1478,17 +1600,30 @@ function defaultProfile(username = state.currentUser || "") {
 
 function getCurrentProfile() {
   const username = state.currentUser || "";
+  if (state.currentProfile) return { ...defaultProfile(username), ...state.currentProfile };
   const profiles = getProfiles();
   return { ...defaultProfile(username), ...(profiles[username] || {}) };
 }
 
-function saveCurrentProfile(patch) {
+async function saveCurrentProfile(patch) {
   const username = state.currentUser;
   if (!username) return;
+  state.currentProfile = { ...getCurrentProfile(), ...patch };
   const profiles = getProfiles();
-  profiles[username] = { ...defaultProfile(username), ...(profiles[username] || {}), ...patch };
+  profiles[username] = state.currentProfile;
   saveProfiles(profiles);
   updateUserChrome();
+  const result = await apiRequest("/api/profile", {
+    method: "PUT",
+    body: { profile: state.currentProfile },
+  }).catch((error) => {
+    showToast(error.message);
+    return null;
+  });
+  if (result?.profile) {
+    state.currentProfile = result.profile;
+    updateUserChrome();
+  }
 }
 
 function updateUserChrome() {
@@ -1512,8 +1647,8 @@ function renderAvatar(profile, size = "large") {
   return `<span class="profile-avatar ${size}">${initial}</span>`;
 }
 
-function saveProfileFromForm() {
-  saveCurrentProfile({
+async function saveProfileFromForm() {
+  await saveCurrentProfile({
     displayName: document.getElementById("profileDisplayName").value.trim() || state.currentUser,
     role: document.getElementById("profileRole").value.trim(),
     department: document.getElementById("profileDepartment").value.trim(),
@@ -1543,8 +1678,8 @@ function handleAvatarUpload(event) {
     return;
   }
   const reader = new FileReader();
-  reader.onload = () => {
-    saveCurrentProfile({ avatar: String(reader.result) });
+  reader.onload = async () => {
+    await saveCurrentProfile({ avatar: String(reader.result) });
     renderPage();
     showToast("头像已更新。");
   };
@@ -1561,6 +1696,20 @@ async function changeCurrentPassword() {
   }
   if (newPassword !== confirmPassword) {
     showToast("两次输入的新密码不一致。");
+    return;
+  }
+  const serverResult = await apiRequest("/api/auth/password", {
+    method: "POST",
+    body: { oldPassword, newPassword },
+  }).catch((error) => {
+    showToast(error.message);
+    return false;
+  });
+  if (serverResult) {
+    document.getElementById("oldPassword").value = "";
+    document.getElementById("newPassword").value = "";
+    document.getElementById("confirmPassword").value = "";
+    showToast("密码已更新。");
     return;
   }
   const users = getUsers();
@@ -1835,9 +1984,11 @@ function bindStaticEvents() {
     showToast("已生成报告预览，可继续导出 PDF 或文本。");
   });
 
-  document.getElementById("logoutBtn").addEventListener("click", () => {
+  document.getElementById("logoutBtn").addEventListener("click", async () => {
+    await apiRequest("/api/auth/logout", { method: "POST" }).catch(() => null);
     localStorage.removeItem(AUTH_SESSION_KEY);
     state.currentUser = null;
+    state.currentProfile = null;
     document.body.classList.add("auth-locked");
     document.getElementById("authScreen").hidden = false;
     setAuthMode("login");
@@ -1887,26 +2038,30 @@ function bindDynamicEvents() {
 
   document.getElementById("reportEditor")?.addEventListener("input", (event) => {
     state.reportDraft = event.target.value;
+    persistReportState();
   });
 
   document.getElementById("insertAiReportBtn")?.addEventListener("click", () => {
     state.reportDraft = aiCommentary(enrich(getPeriodData()));
+    persistReportState();
     renderPage();
     showToast("AI 点评已写入报告编辑器。");
   });
 
   document.getElementById("avatarInput")?.addEventListener("change", handleAvatarUpload);
-  document.getElementById("removeAvatarBtn")?.addEventListener("click", () => {
-    saveCurrentProfile({ avatar: "" });
+  document.getElementById("removeAvatarBtn")?.addEventListener("click", async () => {
+    await saveCurrentProfile({ avatar: "" });
     renderPage();
     showToast("头像已移除。");
   });
   document.getElementById("saveProfileBtn")?.addEventListener("click", saveProfileFromForm);
   document.getElementById("changePasswordBtn")?.addEventListener("click", changeCurrentPassword);
-  document.getElementById("clearProfileBtn")?.addEventListener("click", () => {
+  document.getElementById("clearProfileBtn")?.addEventListener("click", async () => {
     const profiles = getProfiles();
     delete profiles[state.currentUser];
     saveProfiles(profiles);
+    state.currentProfile = defaultProfile(state.currentUser);
+    await saveCurrentProfile(state.currentProfile);
     updateUserChrome();
     renderPage();
     showToast("个人资料已清空。");
@@ -1924,13 +2079,10 @@ function bindDynamicEvents() {
   document.getElementById("loadDemoBtn")?.addEventListener("click", () => {
     financials = demoFinancials.map((item) => ({ ...item }));
     state.period = financials.at(-1).period;
-    state.importStatus = {
-      balance: { label: "待上传", type: "warn", rows: 0 },
-      income: { label: "待上传", type: "warn", rows: 0 },
-      cashflow: { label: "待上传", type: "warn", rows: 0 },
-    };
+    state.importStatus = defaultImportStatus();
     state.lastImportSummary = "已恢复系统演示数据。";
     syncPeriodSelect();
+    persistFinancialState();
     renderPage();
     showToast("演示数据已恢复，三期财务分析已刷新。");
   });
@@ -1942,6 +2094,7 @@ function bindDynamicEvents() {
   document.querySelectorAll("[data-report-section]").forEach((checkbox) => {
     checkbox.addEventListener("change", (event) => {
       state.reportSections[event.target.dataset.reportSection] = event.target.checked;
+      persistReportState();
       renderPage();
     });
   });
@@ -1960,6 +2113,7 @@ function handleUpload(event) {
       state.lastImportSummary = `${file.name} 已导入 ${result.periods.length} 个期间，已更新 ${result.fields.length} 个标准字段。`;
       state.period = result.periods.at(-1) || state.period;
       syncPeriodSelect();
+      persistFinancialState();
       renderPage();
       showToast(`已导入 ${file.name}，分析页面已联动刷新。`);
     } catch (error) {
@@ -2244,9 +2398,25 @@ function getSessionUser() {
   return username && users[username] ? username : null;
 }
 
-function openAppForUser(username) {
+function loadLocalStateForUser() {
+  financials = loadLocalFinancials();
+  const importMeta = loadLocalImportMeta();
+  state.importStatus = importMeta.importStatus;
+  state.lastImportSummary = importMeta.lastImportSummary;
+  const report = loadLocalReportState();
+  if (report.reportDraft !== undefined) state.reportDraft = report.reportDraft;
+  if (report.reportSections) state.reportSections = { ...state.reportSections, ...report.reportSections };
+}
+
+function openAppForUser(username, payload = null) {
   state.currentUser = username;
-  localStorage.setItem(AUTH_SESSION_KEY, username);
+  if (payload) {
+    applyUserPayload(payload);
+  } else {
+    localStorage.setItem(AUTH_SESSION_KEY, username);
+    state.currentProfile = null;
+    loadLocalStateForUser();
+  }
   document.body.classList.remove("auth-locked");
   document.getElementById("authScreen").hidden = true;
   updateUserChrome();
@@ -2274,6 +2444,26 @@ function bindAuthEvents() {
       return;
     }
 
+    const endpoint = state.authMode === "setup" ? "/api/auth/register" : "/api/auth/login";
+    const serverPayload = await apiRequest(endpoint, {
+      method: "POST",
+      body: {
+        username,
+        password,
+        profile: defaultProfile(username),
+      },
+    }).catch((error) => {
+      setAuthMessage(error.message, "error");
+      return false;
+    });
+    if (serverPayload) {
+      setAuthMessage(state.authMode === "setup" ? "账号已创建，正在进入系统。" : "登录成功，正在进入系统。");
+      openAppForUser(serverPayload.username, serverPayload);
+      if (!serverPayload.financials?.length) persistFinancialState();
+      return;
+    }
+    if (serverPayload === false) return;
+
     const users = getUsers();
     const passwordHash = await hashPassword(username, password);
     if (state.authMode === "setup") {
@@ -2297,16 +2487,34 @@ function bindAuthEvents() {
 }
 
 function startApp() {
+  syncPeriodSelect();
   if (!state.appReady) {
-    syncPeriodSelect();
     bindStaticEvents();
     state.appReady = true;
   }
   renderPage();
 }
 
-function init() {
+async function init() {
   bindAuthEvents();
+  const session = await apiRequest("/api/session").catch(() => null);
+  if (session?.authenticated) {
+    openAppForUser(session.username, session);
+    if (!session.financials?.length) persistFinancialState();
+    return;
+  }
+  if (session) {
+    document.body.classList.add("auth-locked");
+    document.getElementById("authScreen").hidden = false;
+    if (!session.hasUsers) {
+      setAuthMode("setup");
+      setAuthMessage("首次使用，请先创建一个后端账号。");
+    } else {
+      setAuthMode("login");
+      setAuthMessage("请输入账号密码登录。");
+    }
+    return;
+  }
   const users = getUsers();
   const sessionUser = getSessionUser();
   if (sessionUser) {

@@ -1,0 +1,9 @@
+{
+  "name": "finance-insight-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "description": "财务智析 Web 原型与本地后端服务",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

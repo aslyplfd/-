@@ -1,19 +1,24 @@
 # 财务智析 Web 原型
 
-这是一个无需安装依赖的静态 Web 财务分析软件原型，覆盖资产负债表、利润表、现金流量表、偿债能力、盈利能力、营运能力、综合能力、杜邦分析和分析报告。
+这是一个带本地后端的 Web 财务分析软件原型，覆盖资产负债表、利润表、现金流量表、偿债能力、盈利能力、营运能力、综合能力、杜邦分析和分析报告。
 
 ## 运行
 
-直接打开 `index.html` 即可查看。也可以在本目录启动本地服务：
+推荐使用内置 Node 后端运行：
 
 ```powershell
-python -m http.server 5173
+npm start
 ```
 
 然后访问 `http://localhost:5173`。
 
+后端不依赖第三方 npm 包，数据默认保存在本地 `data/store.json`，该目录不会提交到 Git。
+
+如果只想快速查看静态界面，也可以直接打开 `index.html`。此时账号、资料和导入数据会退回浏览器 `localStorage` 本地模式。
+
 ## 当前能力
 
+- 本地 Node 后端：静态文件服务、账号注册登录、HttpOnly Cookie 会话、资料保存、财务数据保存、报告草稿保存
 - 三期演示财务数据联动分析
 - KPI 仪表盘与评分体系
 - 资产结构、利润趋势、现金流瀑布图
@@ -40,10 +45,41 @@ Excel 导入使用浏览器端 SheetJS CDN。若本地网络阻止 CDN 加载，
 
 Excel 会优先按工作表名称自动匹配资产负债表、利润表、现金流量表；没有匹配名称时读取第一个工作表。
 
+## 后端说明
+
+后端接口集中在 `server.js`：
+
+- `GET /api/health`：健康检查
+- `GET /api/bootstrap`：判断是否已有账号
+- `GET /api/session`：读取当前会话和用户数据
+- `POST /api/auth/register`：注册账号
+- `POST /api/auth/login`：登录账号
+- `POST /api/auth/logout`：退出登录
+- `POST /api/auth/password`：修改密码
+- `PUT /api/profile`：保存个人资料
+- `PUT /api/financials`：保存导入后的财务数据和导入状态
+- `PUT /api/report`：保存报告草稿和章节配置
+
+如需改变端口：
+
+```powershell
+$env:PORT=5187
+npm start
+```
+
+如需改变数据目录：
+
+```powershell
+$env:DATA_DIR="E:\vpn\Codex\data"
+npm start
+```
+
 ## 登录说明
 
-首次打开系统会要求创建本地账号。账号数据保存在当前浏览器的 `localStorage` 中，密码保存为 SHA-256 哈希，不保存明文。退出后需要重新输入账号密码登录。
+通过 `npm start` 运行时，首次打开系统会要求创建后端账号。密码使用服务端 PBKDF2 + 随机盐哈希保存，不保存明文；登录状态通过 HttpOnly Cookie 会话维护。
+
+直接打开 `index.html` 时，系统会退回浏览器本地模式，账号数据保存在当前浏览器的 `localStorage` 中。
 
 ## 个人中心
 
-登录后可在左侧进入“个人中心”。头像、显示名称、岗位、部门、联系方式、界面偏好和默认首页都会按当前账号保存到本地。头像以 Base64 图片数据保存在浏览器中，建议上传 2MB 以下图片。
+登录后可在左侧进入“个人中心”。头像、显示名称、岗位、部门、联系方式、界面偏好和默认首页都会按当前账号保存。头像以 Base64 图片数据保存，建议上传 2MB 以下图片。

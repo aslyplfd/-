@@ -4,22 +4,24 @@
 
 ## 项目定位
 
-- 这是一个纯静态的中文财务分析 Web 原型，名称为“财务智析”。
-- 不使用构建工具、包管理器或后端服务；核心文件只有 `index.html`、`styles.css`、`app.js`。
+- 这是一个带本地 Node 后端的中文财务分析 Web 原型，名称为“财务智析”。
+- 不使用第三方 npm 依赖或构建工具；后端由 Node 内置模块实现。
 - 入口是 `index.html`，业务、状态、渲染和事件全部集中在 `app.js`，样式全部在 `styles.css`。
+- 后端入口是 `server.js`，负责静态文件服务、账号、会话、用户资料、财务数据和报告状态持久化。
 - 项目已初始化 Git，默认分支是 `main`，远端为 `https://github.com/aslyplfd/-.git`。
 - 当前本机真实工作目录是 `E:\vpn\Codex\New project`；`C:\Users\Administrator\Documents\New project` 是指向它的目录联接。
 
 ## 运行与验证
 
-- 直接打开 `index.html` 可以运行。
-- 推荐本地服务验证：
+- 推荐通过内置后端运行：
 
 ```powershell
-python -m http.server 5173
+npm start
 ```
 
 - 然后访问 `http://localhost:5173`。
+- 直接打开 `index.html` 仍可运行，但会退回浏览器 `localStorage` 模式。
+- 后端数据默认写入 `data/store.json`，`data/` 已被 `.gitignore` 忽略。
 - 没有自动化测试脚本。修改后至少手动检查：
   - 首次打开能创建本地账号并登录。
   - 左侧导航能切换所有页面。
@@ -38,7 +40,18 @@ python -m http.server 5173
 
 - `app.js`
   - 单文件应用逻辑，包含演示数据、指标计算、页面渲染、事件绑定、导入解析、报告导出和本地登录。
-  - 目前约 2300 行，改动时优先在既有函数附近扩展，不要轻易拆新框架。
+  - 后端在线时通过 `/api/*` 保存账号、资料、财务数据和报告状态；后端不可用时退回 `localStorage`。
+  - 改动时优先在既有函数附近扩展，不要轻易拆新框架。
+
+- `server.js`
+  - 无依赖 Node HTTP 服务。
+  - 静态文件服务和 API 都在同一进程中。
+  - 使用 HttpOnly Cookie 保存会话 token。
+  - 密码使用 PBKDF2 + 随机盐哈希。
+  - 默认数据文件是 `data/store.json`，可用 `DATA_DIR` 环境变量改写。
+
+- `package.json`
+  - 只提供 `npm start`，无第三方 dependencies。
 
 - `styles.css`
   - 所有 UI 样式、响应式布局、打印样式、主题强调色和界面密度。
@@ -49,6 +62,7 @@ python -m http.server 5173
 
 - `.gitignore`
   - 已忽略依赖目录、构建产物、环境文件、临时文件和本地预览截图。
+  - 已忽略 `data/`，避免提交本地账号、会话和业务数据。
   - `preview-*.png` 是开发过程截图，不应提交。
 
 ## 核心状态与数据
@@ -59,9 +73,9 @@ python -m http.server 5173
   - `period`：当前期间，默认 `2025`。
   - `abilityTab`：财务指标页当前标签。
   - `scenario`：情景预测滑块参数。
-  - `reportDraft`、`reportSections`：报告编辑器与导出章节开关。
-  - `authMode`、`currentUser`、`appReady`：本地登录状态。
-  - `importStatus`、`lastImportSummary`：三大报表导入状态。
+- `reportDraft`、`reportSections`：报告编辑器与导出章节开关。
+- `authMode`、`currentUser`、`appReady`：本地登录状态。
+- `importStatus`、`lastImportSummary`：三大报表导入状态。
 
 - 演示数据在 `demoFinancials`，运行数据在可变数组 `financials`。
 - 每个期间的基础字段包括：
@@ -109,13 +123,39 @@ python -m http.server 5173
 - 报告文本下载由 `downloadTextReport()` 从 `#reportSheet.innerText` 导出。
 - PDF 导出使用 `window.print()` 和 `@media print` 样式。
 
-## 本地登录与持久化
+## 后端 API 与持久化
 
-- 所有账号和资料只保存在浏览器 `localStorage`。
+- API 全部在 `server.js`：
+  - `GET /api/health`
+  - `GET /api/bootstrap`
+  - `GET /api/session`
+  - `POST /api/auth/register`
+  - `POST /api/auth/login`
+  - `POST /api/auth/logout`
+  - `POST /api/auth/password`
+  - `PUT /api/profile`
+  - `PUT /api/financials`
+  - `PUT /api/report`
+- 运行 `npm start` 时，前端优先使用后端。
+- 后端不可用或直接打开 HTML 时，前端自动退回浏览器 `localStorage` 模式。
+- `server.js` 的数据结构：
+  - `users`：账号、盐、密码哈希、创建/更新时间。
+  - `sessions`：会话 token、用户名、过期时间。
+  - `profiles`：个人资料和偏好。
+  - `financials`：每个账号导入后的财务数据。
+  - `importMeta`：导入状态和导入摘要。
+  - `reports`：报告草稿和章节选择。
+
+## 本地登录兼容
+
+- 直接打开 `index.html` 或使用不含 API 的静态服务器时，账号和资料保存在浏览器 `localStorage`。
 - localStorage key：
   - `financeInsightUsers`
   - `financeInsightSession`
   - `financeInsightProfiles`
+  - `financeInsightFinancials`
+  - `financeInsightImportMeta`
+  - `financeInsightReport`
 - 密码由 `hashPassword(username, password)` 处理：
   - 优先使用 `crypto.subtle.digest("SHA-256")`。
   - 不可用时退回 Base64 编码，这不是强安全方案，只适合本地原型。
@@ -137,7 +177,8 @@ python -m http.server 5173
 ## 修改注意事项
 
 - 不要提交 `preview-*.png` 或其他临时截图。
-- 不要引入 Node 依赖或构建流程，除非用户明确要求。
+- 不要引入第三方 Node 依赖或构建流程，除非用户明确要求。
+- 不要提交 `data/`，里面包含本地账号、会话和业务数据。
 - 如果新增财务字段：
   - 更新 `demoFinancials`。
   - 更新 `statementFields` 和 `fieldAliases`。
@@ -150,6 +191,7 @@ python -m http.server 5173
   - 在 `renderPage()` 的 `renderers` 映射里注册。
   - 如有交互，在 `bindDynamicEvents()` 中绑定，或复用现有 data 属性模式。
 - 如果新增 localStorage 数据，优先用明确命名的 key，并在个人中心或文档里说明用途。
+- 如果新增后端持久化字段，同步更新 `server.js` 的清洗/校验逻辑、README 和本文件。
 - 模板字符串里插入用户导入内容时要注意 XSS 风险；当前原型多数内容直接拼接 HTML，后续若面向真实用户应增加转义函数。
 
 ## Git 工作流
