@@ -13,24 +13,30 @@
           <div class="brand-mark">F</div>
           <div>
             <strong>财务智析</strong>
-            <span>后端账号登录</span>
+            <span>账号安全登录</span>
           </div>
         </div>
         <div class="auth-copy">
-          <p class="eyebrow">Server Account</p>
+          <p class="eyebrow">Account Login</p>
           <h1 id="authTitle">登录系统</h1>
-          <p id="authHint">账号和密码通过后端服务注册登录，登录状态由安全会话维护。</p>
+          <p id="authHint">请输入账号和密码登录财务分析系统。</p>
         </div>
         <form class="auth-form" id="authForm">
-          <label>
+          <label class="auth-field">
             <span>账号</span>
             <input id="authUsername" name="username" autocomplete="username" placeholder="请输入账号" required />
           </label>
-          <label>
+          <label class="auth-field">
             <span>密码</span>
-            <input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
+            <div class="auth-input-row">
+              <input id="authPassword" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
+              <button class="password-toggle" type="button" data-password-toggle="authPassword" aria-label="显示密码">显示</button>
+            </div>
           </label>
-          <button class="primary-button" id="authSubmit" type="submit">登录</button>
+          <button class="primary-button auth-submit" id="authSubmit" type="submit">
+            <span id="authSubmitText">登录</span>
+            <span class="auth-spinner" aria-hidden="true"></span>
+          </button>
         </form>
         <div class="auth-actions">
           <button class="ghost-button active" data-auth-mode="login">已有账号登录</button>

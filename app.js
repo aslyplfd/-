@@ -2268,18 +2268,99 @@ function showToast(message) {
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
 }
 
-function setAuthMode(mode) {
+const authModeCopy = {
+  login: {
+    title: "登录系统",
+    submit: "登录",
+    submitting: "正在登录",
+    hint: "请输入账号和密码登录财务分析系统。",
+  },
+  setup: {
+    title: "注册账号",
+    submit: "创建并登录",
+    submitting: "正在创建",
+    hint: "设置一个账号和密码，创建后即可进入系统。",
+  },
+};
+
+function getAuthNodes() {
+  return {
+    form: document.getElementById("authForm"),
+    username: document.getElementById("authUsername"),
+    password: document.getElementById("authPassword"),
+    submit: document.getElementById("authSubmit"),
+    submitText: document.getElementById("authSubmitText"),
+    message: document.getElementById("authMessage"),
+  };
+}
+
+function focusAuthField(node) {
+  if (!node) return;
+  setTimeout(() => node.focus(), 0);
+}
+
+function clearAuthFieldErrors() {
+  document.querySelectorAll(".auth-field.is-invalid").forEach((field) => field.classList.remove("is-invalid"));
+}
+
+function setAuthFieldError(node, message) {
+  clearAuthFieldErrors();
+  node?.closest(".auth-field")?.classList.add("is-invalid");
+  setAuthMessage(message, "error");
+  focusAuthField(node);
+}
+
+function setPasswordToggleState(button, input) {
+  if (!button || !input) return;
+  const isHidden = input.type === "password";
+  button.textContent = isHidden ? "显示" : "隐藏";
+  button.setAttribute("aria-label", isHidden ? "显示密码" : "隐藏密码");
+}
+
+function resetPasswordVisibility() {
+  document.querySelectorAll("[data-password-toggle]").forEach((button) => {
+    const input = document.getElementById(button.dataset.passwordToggle);
+    if (input) input.type = "password";
+    setPasswordToggleState(button, input);
+  });
+}
+
+function setAuthSubmitting(isSubmitting) {
+  const { form, username, password, submit, submitText } = getAuthNodes();
+  const copy = authModeCopy[state.authMode] || authModeCopy.login;
+  form.dataset.submitting = isSubmitting ? "true" : "false";
+  submit.disabled = isSubmitting;
+  submitText.textContent = isSubmitting ? copy.submitting : copy.submit;
+  [username, password].forEach((node) => {
+    if (node) node.disabled = isSubmitting;
+  });
+  document.querySelectorAll("[data-auth-mode], [data-password-toggle]").forEach((button) => {
+    button.disabled = isSubmitting;
+  });
+}
+
+function setAuthMode(mode, options = {}) {
   state.authMode = mode;
-  document.querySelectorAll("[data-auth-mode]").forEach((button) => button.classList.toggle("active", button.dataset.authMode === mode));
-  document.getElementById("authTitle").textContent = mode === "setup" ? "注册账号" : "登录系统";
-  document.getElementById("authSubmit").textContent = mode === "setup" ? "创建并登录" : "登录";
-  document.getElementById("authHint").textContent = mode === "setup"
-    ? "首次使用请注册后端账号，密码由服务端安全保存。"
-    : "请输入账号密码，登录状态由后端会话维护。";
+  const copy = authModeCopy[mode] || authModeCopy.login;
+  const { username, password, submitText } = getAuthNodes();
+  document.querySelectorAll("[data-auth-mode]").forEach((button) => {
+    const isActive = button.dataset.authMode === mode;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+  document.getElementById("authTitle").textContent = copy.title;
+  submitText.textContent = copy.submit;
+  document.getElementById("authHint").textContent = copy.hint;
+  password.autocomplete = mode === "setup" ? "new-password" : "current-password";
+  password.placeholder = mode === "setup" ? "请输入至少 6 个字符的密码" : "请输入密码";
+  password.value = "";
+  clearAuthFieldErrors();
+  resetPasswordVisibility();
+  if (options.focus) focusAuthField(username);
 }
 
 function setAuthMessage(message, type = "") {
-  const node = document.getElementById("authMessage");
+  const { message: node } = getAuthNodes();
   node.textContent = message;
   node.dataset.type = type;
 }
@@ -2302,25 +2383,40 @@ function openAppForUser(username, payload = null) {
 function bindAuthEvents() {
   document.querySelectorAll("[data-auth-mode]").forEach((button) => {
     button.addEventListener("click", () => {
-      setAuthMode(button.dataset.authMode);
+      setAuthMode(button.dataset.authMode, { focus: true });
       setAuthMessage("");
+    });
+  });
+
+  document.querySelectorAll("[data-password-toggle]").forEach((button) => {
+    const input = document.getElementById(button.dataset.passwordToggle);
+    setPasswordToggleState(button, input);
+    button.addEventListener("click", () => {
+      input.type = input.type === "password" ? "text" : "password";
+      setPasswordToggleState(button, input);
+      focusAuthField(input);
     });
   });
 
   document.getElementById("authForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const username = document.getElementById("authUsername").value.trim();
-    const password = document.getElementById("authPassword").value;
+    const { form, username: usernameInput, password: passwordInput } = getAuthNodes();
+    if (form.dataset.submitting === "true") return;
+    clearAuthFieldErrors();
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
     if (username.length < 3) {
-      setAuthMessage("账号至少需要 3 个字符。", "error");
+      setAuthFieldError(usernameInput, "账号至少需要 3 个字符，请补充后再继续。");
       return;
     }
     if (password.length < 6) {
-      setAuthMessage("密码至少需要 6 个字符。", "error");
+      setAuthFieldError(passwordInput, "密码至少需要 6 个字符。");
       return;
     }
 
     const endpoint = state.authMode === "setup" ? "/api/auth/register" : "/api/auth/login";
+    setAuthSubmitting(true);
+    setAuthMessage(state.authMode === "setup" ? "正在创建账号，请稍候。" : "正在登录，请稍候。");
     const serverPayload = await apiRequest(endpoint, {
       method: "POST",
       body: {
@@ -2329,17 +2425,19 @@ function bindAuthEvents() {
         profile: defaultProfile(username),
       },
     }).catch((error) => {
-      setAuthMessage(error.message, "error");
+      setAuthFieldError(error.status === 401 ? passwordInput : usernameInput, error.message);
       return false;
     });
     if (serverPayload) {
-      setAuthMessage(state.authMode === "setup" ? "账号已创建，正在进入系统。" : "登录成功，正在进入系统。");
+      setAuthMessage(state.authMode === "setup" ? "账号已创建，正在进入系统。" : "登录成功，正在进入系统。", "success");
+      setAuthSubmitting(false);
       openAppForUser(serverPayload.username, serverPayload);
       if (!serverPayload.financials?.length) persistFinancialState();
       return;
     }
+    setAuthSubmitting(false);
     if (serverPayload !== false) {
-      setAuthMessage("无法连接后端服务，请先运行 npm start 后再注册或登录。", "error");
+      setAuthFieldError(usernameInput, "登录服务暂时不可用，请稍后重试。");
     }
   });
 }
@@ -2366,17 +2464,17 @@ async function init() {
     document.getElementById("authScreen").hidden = false;
     if (!session.hasUsers) {
       setAuthMode("setup");
-      setAuthMessage("首次使用，请先创建一个后端账号。");
+      setAuthMessage("首次使用，请先创建账号。", "info");
     } else {
       setAuthMode("login");
-      setAuthMessage("请输入账号密码登录。");
+      setAuthMessage("请输入账号密码登录。", "info");
     }
     return;
   }
   document.body.classList.add("auth-locked");
   document.getElementById("authScreen").hidden = false;
   setAuthMode("login");
-  setAuthMessage("无法连接后端服务，请先运行 npm start 后再使用注册登录。", "error");
+  setAuthMessage("登录服务暂时不可用，请稍后重试。", "error");
 }
 
 function syncPeriodSelect() {
